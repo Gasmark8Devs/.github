@@ -1,7 +1,4 @@
-# Gasmark8 - Organization Front Page
-
-This `.github` repository defines the **public organization profile** on GitHub.
-When someone visits `gasmark8` for the first time, this is the documentation they see first.
+# Gasmark8 -
 
 ## What this repository does
 
@@ -18,7 +15,7 @@ When someone visits `gasmark8` for the first time, this is the documentation the
 
 ## Standard deployment flow (summary)
 
-1. Merge to `main` to deploy to staging.
+1. Merge to `main` to deploy to production.
 2. Validate changes in staging (QA/team).
 3. Push a semantic tag (`v*.*.*`) to deploy to production.
 4. Complete environment approval in GitHub, when required.
