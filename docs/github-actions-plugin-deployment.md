@@ -2,11 +2,11 @@
 
 > **Audience:** Developers, DevOps engineers, and engineering leads who need to understand, replicate, or maintain the automated plugin deployment process.
 >
-> **Purpose:** This is the detailed technical reference for plugin deployment automation in the `gasmark8` organization. The organization front page (`profile/README.md`) stays concise and links here for full implementation details.
+> **Purpose:** This is the detailed technical reference for plugin deployment automation in the `gasmark8` organization. The organization front page ([`profile/README.md`](../profile/README.md)) stays concise and links here for full implementation details.
 
 ## Related Repository Docs
 
-- Organization front page (high-level): `profile/README.md`
+- Organization front page (high-level): [`profile/README.md`](../profile/README.md)
 - Reusable deployment workflow (source): `workflow-templates/plugin-deploy.yml`
 - This implementation guide (detailed reference): `docs/github-actions-plugin-deployment.md`
 
