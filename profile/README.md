@@ -1,4 +1,4 @@
-# Gasmark8 -
+# Gasmark8
 
 ## What this repository does
 
