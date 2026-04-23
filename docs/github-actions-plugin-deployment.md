@@ -7,7 +7,7 @@
 ## Related Repository Docs
 
 - Organization front page (high-level): [`profile/README.md`](../profile/README.md)
-- Reusable deployment workflow (source): `workflow-templates/plugin-deploy.yml`
+- Copy-paste workflow target path: `.github/workflows/deploy.yml`
 - This implementation guide (detailed reference): `docs/github-actions-plugin-deployment.md`
 
 ---
@@ -21,7 +21,7 @@
 5. [Step-by-Step Workflow Configuration](#5-step-by-step-workflow-configuration)
 6. [Secrets & Environment Setup](#6-secrets--environment-setup)
 7. [Environment Promotion (Staging → Production)](#7-environment-promotion-staging--production)
-8. [Monitoring & Notifications](#8-monitoring--notifications)
+8. [Monitoring & Verification](#8-monitoring--verification)
 9. [Troubleshooting](#9-troubleshooting)
 10. [Replicating This Setup in a New Repository](#10-replicating-this-setup-in-a-new-repository)
 11. [Glossary](#11-glossary)
@@ -32,14 +32,15 @@
 
 ### What Is This Workflow?
 
-This GitHub Actions workflow automates the full plugin deployment lifecycle — from code commit to production release — without requiring manual shell access or ad-hoc scripts. Every time a qualifying code change is pushed, the workflow:
+This guide focuses on the deployment pattern we use most in production: **WordPress plugin deployment via `rsync` over SSH password auth** from GitHub Actions.
 
-1. Checks out the latest code.
-2. Installs dependencies and builds the plugin artifact.
-3. Runs automated tests to validate the build.
-4. Packages the plugin (e.g., `.zip`, `.tar.gz`, or platform-specific bundle).
-5. Deploys to the target environment (staging or production).
-6. Sends a notification with the deployment result.
+The baseline workflow:
+
+1. Is manually triggered from GitHub Actions (`workflow_dispatch`).
+2. Lets the operator choose `staging` or `production`.
+3. Uses environment-scoped secrets for server credentials.
+4. Syncs plugin files directly to the server with `rsync`.
+5. Optionally runs post-deploy PHP sync scripts on the server.
 
 ### Why GitHub Actions?
 
@@ -47,76 +48,72 @@ This GitHub Actions workflow automates the full plugin deployment lifecycle — 
 |---|---|
 | **Native integration** | Runs directly inside GitHub — no third-party CI server to maintain. |
 | **Audit trail** | Every run is logged with the triggering commit, actor, and timestamps. |
-| **Reusability** | Shared workflows (stored here in `workflow-templates/`) can be called by every plugin repository in the org. |
+| **Reusability** | The same `deploy.yml` pattern can be copied across WordPress plugin repositories. |
 | **Secrets management** | Credentials are stored as encrypted GitHub Secrets, never in source code. |
 
 ---
 
 ## 2. Deployment Triggers
 
-The workflow supports three trigger modes. Choose the one that matches your intent.
+This WordPress plugin workflow supports three trigger modes. For most plugin deployments, we recommend starting with **manual dispatch**.
 
-### 2.1 Push to a Protected Branch
+### 2.1 Manual (Workflow Dispatch) - Recommended
 
-Automatically deploys to **staging** whenever code is merged into the `main` (or `develop`) branch.
-
-```yaml
-on:
-  push:
-    branches:
-      - main        # triggers staging deployment
-      - develop     # triggers dev/integration deployment
-```
-
-**When to use:** Day-to-day feature merges and hotfixes that should be validated in staging immediately.
-
----
-
-### 2.2 Semantic Version Tag
-
-Automatically deploys to **production** when a version tag matching `v*.*.*` is pushed.
-
-```yaml
-on:
-  push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'   # e.g., v1.4.2
-```
-
-**When to use:** Formal releases. Create and push the tag after staging validation is complete.
-
-```bash
-# Example: tag and push a production release
-git tag v1.4.2
-git push origin v1.4.2
-```
-
----
-
-### 2.3 Manual (Workflow Dispatch)
-
-Allows any authorized team member to trigger a deployment from the GitHub UI without pushing code.
+Allows an authorized team member to deploy from the GitHub UI without pushing extra commits.
 
 ```yaml
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Target environment'
+        description: 'Deployment environment'
         required: true
         default: 'staging'
         type: choice
         options:
           - staging
           - production
-      plugin_version:
-        description: 'Version to deploy (e.g., 1.4.2)'
+      confirm_production:
+        description: 'Production only - check to confirm production deploy'
         required: false
+        default: false
+        type: boolean
 ```
 
-**When to use:** Re-deploying a specific version, emergency rollbacks, or deploying to production outside of the normal tag workflow.
+**When to use:** Standard WordPress plugin deploys where operators intentionally choose the target environment.
 
-**How to trigger manually:**
+---
+
+### 2.2 Push to Branch (Optional)
+
+Automatically deploys on merge to specific branches.
+
+```yaml
+on:
+  push:
+    branches:
+      - main
+      - develop
+```
+
+**When to use:** Teams that want automatic non-production deployment on merge.
+
+---
+
+### 2.3 Semantic Version Tag (Optional)
+
+Automatically deploys when a semantic version tag is pushed.
+
+```yaml
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+```
+
+**When to use:** Release-driven workflows where production deploys are tied to tags.
+
+**How to trigger manually (`workflow_dispatch`):**
 1. Open the repository on GitHub.
 2. Click **Actions** → select the workflow name.
 3. Click **Run workflow** (top-right).
@@ -125,6 +122,9 @@ on:
 ---
 
 ## 3. Repository & Branch Strategy
+
+The baseline WordPress deployment pattern in this guide is **manual dispatch** with environment selection.
+If your team also uses branch and tag automation, this is the usual model:
 
 ```
 main  ──────────────────────────────────►  staging auto-deploy
@@ -145,195 +145,119 @@ tag v*.*.*  ──────────────────────�
 
 ## 4. Workflow File Structure
 
-All shared workflows live in this `.github` repository under the `workflow-templates/` folder and can be referenced by plugin repositories via `uses:`.
-
-```
-gasmark8/.github
-├── workflow-templates/
-│   └── plugin-deploy.yml        ← reusable workflow definition
-└── docs/
-    └── github-actions-plugin-deployment.md  ← this document
-```
-
-Individual plugin repositories reference the shared workflow:
+For this pattern, each plugin repository contains its own deploy workflow file.
+The same file contents can be reused across repositories with minimal edits.
 
 ```
 my-plugin-repo/
 └── .github/
     └── workflows/
-        └── deploy.yml           ← calls the shared workflow
+        └── deploy.yml           ← workflow from Section 5.1
 ```
 
 ---
 
 ## 5. Step-by-Step Workflow Configuration
 
-### 5.1 Reusable Workflow (`workflow-templates/plugin-deploy.yml`)
+### 5.1 Copy-Paste Workflow for WordPress Plugins (`.github/workflows/deploy.yml`)
 
-This is the central definition. Plugin repos call this workflow and pass in their specific inputs.
+This is the reusable deployment pattern used in multiple WordPress plugin repositories.
+It deploys via `rsync` over SSH password auth using environment-scoped secrets.
+It is based on the same structure currently used in `gm8gmcastats/.github/workflows/deploy.yml`.
 
-```yaml
-name: Plugin Deploy (Reusable)
+Core deployment values used by this pattern:
 
-on:
-  workflow_call:
-    inputs:
-      environment:
-        required: true
-        type: string           # 'staging' or 'production'
-      plugin_name:
-        required: true
-        type: string
-      plugin_version:
-        required: true
-        type: string
-    secrets:
-      DEPLOY_SSH_KEY:
-        required: true
-      DEPLOY_HOST:
-        required: true
-      DEPLOY_USER:
-        required: true
-      SLACK_WEBHOOK_URL:
-        required: false
-
-jobs:
-  build-and-deploy:
-    name: Build & Deploy – ${{ inputs.environment }}
-    runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}   # links to GitHub Environment for approvals
-
-    steps:
-      # ── 1. Checkout ──────────────────────────────────────────────
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # ── 2. Set up Node.js (adjust version as needed) ─────────────
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      # ── 3. Install dependencies ───────────────────────────────────
-      - name: Install dependencies
-        run: npm ci
-
-      # ── 4. Run tests ──────────────────────────────────────────────
-      - name: Run tests
-        run: npm test
-
-      # ── 5. Build plugin artifact ──────────────────────────────────
-      - name: Build plugin
-        run: npm run build
-        env:
-          NODE_ENV: production
-
-      # ── 6. Package artifact ───────────────────────────────────────
-      - name: Package plugin
-        run: |
-          zip -r ${{ inputs.plugin_name }}-${{ inputs.plugin_version }}.zip dist/
-
-      # ── 7. Upload artifact (for audit / rollback) ─────────────────
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.plugin_name }}-${{ inputs.plugin_version }}
-          path: ${{ inputs.plugin_name }}-${{ inputs.plugin_version }}.zip
-          retention-days: 30
-
-      # ── 8a. Copy artifact to server ───────────────────────────────
-      - name: Copy artifact to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: "${{ inputs.plugin_name }}-${{ inputs.plugin_version }}.zip"
-          target: /tmp/
-
-      # ── 8b. Extract and restart ────────────────────────────────────
-      - name: Deploy to server
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            DEPLOY_DIR="/var/www/plugins/${{ inputs.plugin_name }}"
-            ARTIFACT="${{ inputs.plugin_name }}-${{ inputs.plugin_version }}.zip"
-            mkdir -p "$DEPLOY_DIR"
-            unzip -o "/tmp/$ARTIFACT" -d "$DEPLOY_DIR"
-            systemctl restart "plugin-${{ inputs.plugin_name }}" || true
-
-      # ── 9. Notify Slack ───────────────────────────────────────────
-      - name: Notify Slack
-        if: always()
-        uses: slackapi/slack-github-action@v1.26.0
-        with:
-          payload: |
-            {
-              "text": "${{ job.status == 'success' && '✅' || '❌' }} *${{ inputs.plugin_name }} v${{ inputs.plugin_version }}* deployed to *${{ inputs.environment }}* by ${{ github.actor }}"
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-```
-
----
-
-### 5.2 Caller Workflow in a Plugin Repository (`.github/workflows/deploy.yml`)
-
-Each plugin repository contains a thin caller workflow that passes its specific values into the shared reusable workflow above.
+- `DEPLOY_HOST` (secret)
+- `DEPLOY_USER` (secret)
+- `DEPLOY_PATH` (workflow variable)
+- `DEPLOY_PASSWORD` (secret)
 
 ```yaml
-name: Deploy Plugin
+name: Deploy plugin
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Target environment'
+        description: 'Deployment environment'
         required: true
         default: 'staging'
         type: choice
         options:
           - staging
           - production
+      confirm_production:
+        description: 'Production only - check to confirm you intend to deploy to production'
+        required: false
+        default: false
+        type: boolean
+      run_sync_scripts:
+        description: 'Run php scripts/ (sync) on server'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
-  # ── Staging: triggered by push to main ──────────────────────────
-  deploy-staging:
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
-    uses: gasmark8/.github/workflow-templates/plugin-deploy.yml@main
-    with:
-      environment: staging
-      plugin_name: my-awesome-plugin
-      plugin_version: ${{ github.sha }}
-    secrets:
-      DEPLOY_SSH_KEY: ${{ secrets.STAGING_DEPLOY_SSH_KEY }}
-      DEPLOY_HOST: ${{ secrets.STAGING_DEPLOY_HOST }}
-      DEPLOY_USER: ${{ secrets.STAGING_DEPLOY_USER }}
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      SSHPASS: ${{ secrets.DEPLOY_PASSWORD }}
+      DEPLOY_PATH: '~/public_html/wp-content/plugins/your-plugin-slug'
 
-  # ── Production: triggered by version tag ────────────────────────
-  deploy-production:
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.environment == 'production')
-    uses: gasmark8/.github/workflow-templates/plugin-deploy.yml@main
-    with:
-      environment: production
-      plugin_name: my-awesome-plugin
-      plugin_version: ${{ github.ref_name }}
-    secrets:
-      DEPLOY_SSH_KEY: ${{ secrets.PROD_DEPLOY_SSH_KEY }}
-      DEPLOY_HOST: ${{ secrets.PROD_DEPLOY_HOST }}
-      DEPLOY_USER: ${{ secrets.PROD_DEPLOY_USER }}
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - name: Block production without confirmation
+        if: ${{ inputs.environment == 'production' }}
+        run: |
+          case "${{ inputs.confirm_production }}" in
+            true|True) exit 0 ;;
+            *) echo "::error::Production deploy blocked: check Confirm production in the workflow form, then run again."; exit 1 ;;
+          esac
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+
+      - name: Install Composer dependencies
+        run: composer install --no-dev --prefer-dist --no-interaction
+
+      - name: Install sshpass
+        run: sudo apt-get update -qq && sudo apt-get install -y sshpass
+
+      - name: Deploy via rsync (SSH password)
+        run: |
+          rsync -avz --delete \
+            -e "sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '.gitignore' \
+            --exclude '.env' \
+            --exclude '.env.*' \
+            --exclude '*.log' \
+            --exclude '.claude' \
+            --exclude 'docs/' \
+            ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ env.DEPLOY_PATH }}/"
+
+      - name: Run plugin sync scripts on server (optional)
+        if: ${{ inputs.run_sync_scripts }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "cd ${{ env.DEPLOY_PATH }} && php scripts/sync_eportfolio_data.php && php scripts/sync_activities_detailed.php"
 ```
+
+### 5.2 What to Customize Per Plugin
+
+Before using the workflow above, update:
+
+1. `DEPLOY_PATH` to your plugin location (for example: `~/public_html/wp-content/plugins/my-plugin`).
+2. Optional script names in the last SSH step (or remove the step entirely).
+3. PHP version in `Setup PHP` if your server stack is different.
+4. Optional `rsync --exclude` patterns for plugin-specific files.
 
 ---
 
@@ -345,52 +269,55 @@ GitHub Secrets are encrypted key-value pairs stored at the repository or organiz
 
 ### 6.2 Required Secrets
 
-Configure these in **Settings → Secrets and variables → Actions** for each repository (or at the organization level for shared access).
+Configure these in **Settings → Secrets and variables → Actions** inside each GitHub Environment (`staging` and `production`).
+Use the same secret names in both environments, with different values.
 
 | Secret Name | Scope | Description |
 |---|---|---|
-| `STAGING_DEPLOY_SSH_KEY` | Repository | Private SSH key for staging server access |
-| `STAGING_DEPLOY_HOST` | Repository | Hostname or IP of the staging server |
-| `STAGING_DEPLOY_USER` | Repository | SSH username on the staging server |
-| `PROD_DEPLOY_SSH_KEY` | Repository | Private SSH key for production server access |
-| `PROD_DEPLOY_HOST` | Repository | Hostname or IP of the production server |
-| `PROD_DEPLOY_USER` | Repository | SSH username on the production server |
-| `SLACK_WEBHOOK_URL` | Org or Repository | Slack Incoming Webhook URL for notifications |
+| `DEPLOY_HOST` | Environment (`staging`/`production`) | Hostname or IP of the destination server |
+| `DEPLOY_USER` | Environment (`staging`/`production`) | SSH username used for deployment |
+| `DEPLOY_PASSWORD` | Environment (`staging`/`production`) | SSH password used by `sshpass` |
+
+### 6.3 Runtime Variables (Non-Secret)
+
+These are configured in the workflow file itself:
+
+| Variable | Where | Description |
+|---|---|---|
+| `DEPLOY_PATH` | `jobs.deploy.env` | Target plugin directory on the remote WordPress server |
 
 > **Security tip:** Never commit private keys or passwords to the repository. Always use GitHub Secrets.
 
-### 6.3 How to Add a Secret
+### 6.4 How to Add a Secret
 
 1. Go to the repository on GitHub.
 2. Click **Settings** → **Secrets and variables** → **Actions**.
-3. Click **New repository secret**.
-4. Enter the **Name** (exactly as shown in the table above) and the **Value**.
-5. Click **Add secret**.
+3. Open environment **staging**.
+4. Click **Add environment secret** and create:
+   - `DEPLOY_HOST`
+   - `DEPLOY_USER`
+   - `DEPLOY_PASSWORD`
+5. Repeat in environment **production** with production values.
 
-For organization-wide secrets:
-
-1. Go to **Organization Settings** → **Secrets and variables** → **Actions**.
-2. Click **New organization secret**.
-3. Set the **Repository access** policy (e.g., all repositories, or selected ones).
-
-### 6.4 GitHub Environments
+### 6.5 GitHub Environments
 
 GitHub Environments add an extra layer of control for production deployments:
 
 1. Go to **Settings** → **Environments** → **New environment**.
-2. Name it `production`.
-3. Enable **Required reviewers** and add the team leads who must approve production deploys.
-4. Optionally set a **Wait timer** (e.g., 5 minutes) before the deployment proceeds.
+2. Create both `staging` and `production`.
+3. Add `DEPLOY_HOST`, `DEPLOY_USER`, and `DEPLOY_PASSWORD` in each environment.
+4. In `production`, enable **Required reviewers** (recommended).
+5. Optionally set a **Wait timer** (e.g., 5 minutes) before deployment proceeds.
 
 ```
-Developer pushes tag v1.4.2
+Developer runs workflow_dispatch
          │
          ▼
  GitHub Actions starts
          │
          ▼
   Environment: production
-  ⏳ Waiting for approval from: @alfcastillo90
+  ⏳ Waiting for required reviewer approval
          │
     (Approved)
          │
@@ -405,26 +332,22 @@ Developer pushes tag v1.4.2
 The recommended release flow:
 
 ```
-1. Merge feature branch → main
+1. Open GitHub Actions → Deploy plugin
         ↓
-2. GitHub Actions auto-deploys to staging
+2. Run manually with environment = staging
         ↓
 3. QA / director validates on staging
         ↓
-4. Tag the commit: git tag v1.4.2 && git push origin v1.4.2
+4. Run manually again with environment = production
         ↓
-5. GitHub Actions triggers production deployment
+5. Required reviewer approves in GitHub UI
         ↓
-6. Required reviewer approves in GitHub UI
-        ↓
-7. Plugin is live in production
-        ↓
-8. Slack notification confirms success (or failure)
+6. Plugin is live in production
 ```
 
 ---
 
-## 8. Monitoring & Notifications
+## 8. Monitoring & Verification
 
 ### Viewing Run History
 
@@ -433,16 +356,14 @@ The recommended release flow:
 3. Select the workflow from the left sidebar.
 4. Click any run to see logs, timing, and artifact downloads.
 
-### Slack Notifications
+### Post-Deploy Verification Checklist
 
-Each deployment (success or failure) posts a message to the configured Slack channel:
+After each deployment, verify:
 
-- ✅ `my-awesome-plugin v1.4.2 deployed to production by alfcastillo90`
-- ❌ `my-awesome-plugin v1.4.2 deployment to production FAILED – see GitHub Actions for details`
-
-### Email Notifications (Default GitHub Behavior)
-
-GitHub automatically emails the commit author when a workflow they triggered fails. This can be configured in **Profile → Notifications**.
+1. The workflow run status is green.
+2. Files exist on the target server plugin path.
+3. The plugin is active and functional in WordPress admin.
+4. Optional sync scripts completed without errors (if enabled).
 
 ---
 
@@ -450,53 +371,42 @@ GitHub automatically emails the commit author when a workflow they triggered fai
 
 | Symptom | Likely Cause | Resolution |
 |---|---|---|
-| Workflow does not trigger on push | Branch name mismatch in `on.push.branches` | Verify the branch name in the workflow file matches exactly. |
-| `Permission denied (publickey)` during SSH deploy | Wrong or missing `DEPLOY_SSH_KEY` secret | Re-generate an SSH key pair, update the secret, and ensure the public key is in `~/.ssh/authorized_keys` on the server. |
-| Deployment succeeds but plugin not updated | Incorrect remote path in `script:` block | Check the `cd` path in the SSH deploy step. |
+| Workflow does not appear in Actions | Wrong file path or syntax error in YAML | Confirm file is at `.github/workflows/deploy.yml` and validate YAML format. |
+| `Permission denied` during deploy | Wrong `DEPLOY_USER`/`DEPLOY_PASSWORD`, or SSH is blocked | Verify credentials in environment secrets and confirm SSH access from outside GitHub Actions. |
+| Deployment succeeds but plugin is not updated | Wrong `DEPLOY_PATH` | Validate `DEPLOY_PATH` points to `wp-content/plugins/<plugin-slug>`. |
+| Host key warning / SSH prompt interrupts command | Strict host checking prompts in non-interactive CI | Keep non-interactive SSH flags exactly as shown in the workflow. |
 | Production deployment stuck at "Waiting for approval" | No reviewer has approved | Open the workflow run → click **Review deployments** → approve. |
-| `npm ci` fails with missing packages | `package-lock.json` out of sync | Run `npm install` locally, commit the updated `package-lock.json`, and re-push. |
-| Artifact not found after 30 days | Default retention expired | Increase `retention-days` in the `upload-artifact` step, or download the artifact before it expires. |
+| Optional sync scripts fail | Wrong script name/path or missing runtime dependency | SSH to the server and run each script manually to confirm path and PHP compatibility. |
 
 ---
 
 ## 10. Replicating This Setup in a New Repository
 
-Follow these steps to add the deployment workflow to any new plugin repository in the organization:
+Follow these steps to add this workflow to any new WordPress plugin repository in the organization:
 
-### Step 1 — Create the caller workflow file
+### Step 1 — Create the workflow file
 
-In the new repository, create `.github/workflows/deploy.yml` and paste the [caller workflow from Section 5.2](#52-caller-workflow-in-a-plugin-repository-githubworkflowsdeployyml), updating `plugin_name` to match your plugin.
+In the new repository, create `.github/workflows/deploy.yml` and paste the copy-paste workflow from [Section 5.1](#51-copy-paste-workflow-for-wordpress-plugins-githubworkflowsdeployyml).
 
 ### Step 2 — Add required secrets
 
-Add all secrets listed in [Section 6.2](#62-required-secrets) under **Settings → Secrets and variables → Actions**.
+Add `DEPLOY_HOST`, `DEPLOY_USER`, and `DEPLOY_PASSWORD` for both environments as shown in [Section 6.2](#62-required-secrets).
 
 ### Step 3 — Set up GitHub Environments
 
-Create `staging` and `production` environments as described in [Section 6.4](#64-github-environments). Add required reviewers for `production`.
+Create `staging` and `production` environments as described in [Section 6.5](#65-github-environments). Add required reviewers for `production`.
 
-### Step 4 — Ensure SSH access
+### Step 4 — Configure plugin path in workflow
 
-On your staging and production servers, add the **public key** that corresponds to `DEPLOY_SSH_KEY` to the `~/.ssh/authorized_keys` file for `DEPLOY_USER`.
+Set `DEPLOY_PATH` in `jobs.deploy.env` to the plugin directory on each server (for example: `~/public_html/wp-content/plugins/my-plugin`).
 
-```bash
-# On the server, run:
-echo "ssh-ed25519 AAAA... your-key-comment" >> ~/.ssh/authorized_keys
-chmod 600 ~/.ssh/authorized_keys
-```
+### Step 5 — Verify with a staging run
 
-### Step 5 — Verify with a test push
+Run the workflow with `environment = staging` and confirm the plugin updates correctly.
 
-Merge a small change to `main` and confirm the staging deployment completes successfully in the Actions tab.
+### Step 6 — Promote to production
 
-### Step 6 — Tag a production release
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-Approve the deployment in GitHub and confirm the plugin is live.
+Run the workflow again with `environment = production`, check **Confirm production**, approve deployment, and validate the plugin in production.
 
 ---
 
@@ -509,12 +419,12 @@ Approve the deployment in GitHub and confirm the plugin is live.
 | **Job** | A unit of work inside a workflow. Jobs run in parallel by default unless dependencies are declared. |
 | **Step** | An individual task within a job — either a shell command (`run:`) or a reusable action (`uses:`). |
 | **Action** | A pre-built, shareable step. Examples: `actions/checkout`, `actions/setup-node`. |
-| **Reusable Workflow** | A workflow that can be called by other workflows using `workflow_call`. Stored centrally to reduce duplication. |
+| **Environment Secret** | A secret value scoped to a GitHub Environment (for example, `staging` or `production`). |
 | **Secret** | An encrypted variable stored in GitHub, injected into workflows at runtime. Never visible in logs. |
 | **Environment** | A named deployment target (e.g., `staging`, `production`) with optional approval gates and protection rules. |
-| **Artifact** | A file or folder produced by a workflow run (e.g., the compiled plugin `.zip`). Can be downloaded for 30 days by default. |
+| **`rsync`** | A command-line utility used here to synchronize plugin files from the repository runner to the remote server. |
 | **Workflow Dispatch** | A manual trigger that lets authorized users start a workflow from the GitHub UI or API. |
-| **SSH Key Pair** | A public/private cryptographic key pair. The private key is stored as a GitHub Secret; the public key is placed on the target server. |
+| **`sshpass`** | A utility that provides SSH passwords non-interactively in CI using the `SSHPASS` environment variable. |
 
 ---
 
