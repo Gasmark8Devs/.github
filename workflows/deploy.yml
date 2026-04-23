@@ -1,5 +1,33 @@
 name: Plugin Deploy (Reusable - rsync)
 
+# Deploys a WordPress plugin to staging or production over SSH (rsync).
+# Authentication: SSH password via sshpass. More secure alternative: SSH key.
+#
+# Two environments (each with its own host, user, and password):
+# - The job uses `environment: staging` or `production`, so GitHub injects
+#   secrets from that specific environment (same names, different values).
+#
+# GitHub setup:
+# 1. Settings -> Environments -> create "staging" and "production"
+# 2. In "staging" environment secrets:
+#      DEPLOY_HOST     = STAGING server IP or hostname
+#      DEPLOY_USER     = STAGING SSH user
+#      DEPLOY_PASSWORD = STAGING SSH password
+# 3. In "production" environment secrets:
+#      same names, but with PRODUCTION values
+#
+# WordPress plugin path:
+# - Set with input `deploy_path`; `~` resolves to the SSH user's home directory.
+#
+# Optional:
+# - After rsync, run CLI sync scripts over SSH (configured via
+#   `run_sync_scripts` + `sync_scripts_command`).
+#
+# Production safety:
+# - `confirm_production` must be true for production deployment.
+# - Additional protection is recommended via required reviewers in:
+#   Settings -> Environments -> production.
+
 on:
   workflow_call:
     inputs:
