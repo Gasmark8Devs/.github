@@ -1,6 +1,6 @@
 # GitHub Actions Plugin Deployment Guide
 
-> **Audience:** Developers, DevOps engineers, and engineering leads who need to understand, replicate, or maintain the automated plugin deployment process.
+
 >
 > **Purpose:** This is the detailed technical reference for plugin deployment automation in the `gasmark8` organization. The organization front page ([`profile/README.md`](../profile/README.md)) stays concise and links here for full implementation details.
 
