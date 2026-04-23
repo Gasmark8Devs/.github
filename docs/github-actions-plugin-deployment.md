@@ -1,8 +1,14 @@
 # GitHub Actions Plugin Deployment Guide
 
-> **Audience:** Developers, DevOps engineers, and directors who need to understand, replicate, or maintain the automated plugin deployment process.
+> **Audience:** Developers, DevOps engineers, and engineering leads who need to understand, replicate, or maintain the automated plugin deployment process.
 >
-> **Purpose:** This document provides a step-by-step reference for how GitHub Actions is configured to handle plugin deployments within the Gasmark8Devs organization. It is intended to be stored in ClickUp and shared with the team (including Mike) as a living reference guide.
+> **Purpose:** This is the detailed technical reference for plugin deployment automation in the `gasmark8` organization. The organization front page (`profile/README.md`) stays concise and links here for full implementation details.
+
+## Related Repository Docs
+
+- Organization front page (high-level): `profile/README.md`
+- Reusable deployment workflow (source): `workflow-templates/plugin-deploy.yml`
+- This implementation guide (detailed reference): `docs/github-actions-plugin-deployment.md`
 
 ---
 
@@ -41,7 +47,7 @@ This GitHub Actions workflow automates the full plugin deployment lifecycle — 
 |---|---|
 | **Native integration** | Runs directly inside GitHub — no third-party CI server to maintain. |
 | **Audit trail** | Every run is logged with the triggering commit, actor, and timestamps. |
-| **Reusability** | Shared workflows (stored here in `.github/workflows/`) can be called by every plugin repository in the org. |
+| **Reusability** | Shared workflows (stored here in `workflow-templates/`) can be called by every plugin repository in the org. |
 | **Secrets management** | Credentials are stored as encrypted GitHub Secrets, never in source code. |
 
 ---
@@ -142,7 +148,7 @@ tag v*.*.*  ──────────────────────�
 All shared workflows live in this `.github` repository under the `workflow-templates/` folder and can be referenced by plugin repositories via `uses:`.
 
 ```
-Gasmark8Devs/.github
+gasmark8/.github
 ├── workflow-templates/
 │   └── plugin-deploy.yml        ← reusable workflow definition
 └── docs/
@@ -303,7 +309,7 @@ jobs:
   # ── Staging: triggered by push to main ──────────────────────────
   deploy-staging:
     if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
-    uses: Gasmark8Devs/.github/workflow-templates/plugin-deploy.yml@main
+    uses: gasmark8/.github/workflow-templates/plugin-deploy.yml@main
     with:
       environment: staging
       plugin_name: my-awesome-plugin
@@ -317,7 +323,7 @@ jobs:
   # ── Production: triggered by version tag ────────────────────────
   deploy-production:
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.environment == 'production')
-    uses: Gasmark8Devs/.github/workflow-templates/plugin-deploy.yml@main
+    uses: gasmark8/.github/workflow-templates/plugin-deploy.yml@main
     with:
       environment: production
       plugin_name: my-awesome-plugin
@@ -512,4 +518,4 @@ Approve the deployment in GitHub and confirm the plugin is live.
 
 ---
 
-*Last updated: April 2026 | Maintained by: Gasmark8Devs engineering team*
+*Last updated: April 2026 | Maintained by: gasmark8 engineering team*

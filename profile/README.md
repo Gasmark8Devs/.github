@@ -1,3 +1,77 @@
+# Gasmark8 - Organization Front Page
+
+This `.github` repository defines the **public organization profile** on GitHub.
+When someone visits `gasmark8` for the first time, this is the documentation they see first.
+
+## What this repository does
+
+- Centralizes shared CI/CD conventions used across organization plugins.
+- Publishes onboarding references for engineering workflows.
+- Acts as the entry point to key technical documentation.
+
+## Quick navigation
+
+- Full GitHub Actions deployment guide:
+  - `docs/github-actions-plugin-deployment.md`
+- Reusable plugin deployment workflow:
+  - `workflow-templates/plugin-deploy.yml`
+
+## Standard deployment flow (summary)
+
+1. Merge to `main` to deploy to staging.
+2. Validate changes in staging (QA/team).
+3. Push a semantic tag (`v*.*.*`) to deploy to production.
+4. Complete environment approval in GitHub, when required.
+
+## Scope of this front page
+
+This README is intentionally a **high-level overview and navigation page**.
+Detailed technical instructions (YAML examples, secrets, troubleshooting) live in `docs/`.
+
+## Maintenance
+
+If deployment conventions change, update:
+
+1. `workflow-templates/plugin-deploy.yml`
+2. `docs/github-actions-plugin-deployment.md`
+3. `profile/README.md` (only if the front-page message changes)
+# Gasmark8 - Repositorio de Presentacion
+
+Este repositorio `.github` define la **portada publica** de la organizacion en GitHub.
+Cuando alguien entra por primera vez al perfil de `gasmark8`, esta es la documentacion que ve.
+
+## Que hace este repo
+
+- Centraliza lineamientos de CI/CD compartidos por los plugins de la organizacion.
+- Publica referencias para onboarding tecnico del equipo.
+- Sirve como punto de entrada para navegar la documentacion importante.
+
+## Navegacion rapida
+
+- Guia completa de despliegues con GitHub Actions:
+  - `docs/github-actions-plugin-deployment.md`
+- Workflow reutilizable para despliegue de plugins:
+  - `workflow-templates/plugin-deploy.yml`
+
+## Flujo estandar de despliegue (resumen)
+
+1. Merge a `main` para desplegar a staging.
+2. Validacion en staging por QA/equipo.
+3. Tag semantico (`v*.*.*`) para desplegar a produccion.
+4. Aprobacion en GitHub Environment si aplica.
+
+## Alcance de esta portada
+
+Este README esta pensado como **resumen ejecutivo y de navegacion**.
+Los detalles tecnicos, ejemplos YAML, secretos y troubleshooting viven en la guia de `docs/`.
+
+## Mantenimiento
+
+Si actualizas pipelines o convenciones, actualiza tambien:
+
+1. `workflow-templates/plugin-deploy.yml`
+2. `docs/github-actions-plugin-deployment.md`
+3. Este `profile/README.md` (solo si cambia el mensaje principal de la portada)
 # GitHub Actions Plugin Deployment Guide
 
 > **Audience:** Developers, DevOps engineers, and directors who need to understand, replicate, or maintain the automated plugin deployment process.
