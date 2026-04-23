@@ -1,127 +1,91 @@
-name: Plugin Deploy (Reusable)
-
-# This reusable workflow is called by individual plugin repositories.
-# See docs/github-actions-plugin-deployment.md for full setup instructions.
+name: Plugin Deploy (Reusable - rsync)
 
 on:
   workflow_call:
     inputs:
       environment:
-        description: 'Target deployment environment (staging or production)'
+        description: 'Deployment environment'
         required: true
         type: string
-      plugin_name:
-        description: 'Name of the plugin being deployed'
+      deploy_path:
+        description: 'Remote plugin path relative to SSH user home'
         required: true
         type: string
-      plugin_version:
-        description: 'Version identifier (semver tag or commit SHA)'
-        required: true
-        type: string
-      node_version:
-        description: 'Node.js version to use for the build'
+      php_version:
+        description: 'PHP version used to run composer install'
         required: false
         type: string
-        default: '20'
+        default: '8.4'
+      confirm_production:
+        description: 'Set true to allow production deployment'
+        required: false
+        type: boolean
+        default: false
+      run_sync_scripts:
+        description: 'Run plugin sync scripts on server after deploy'
+        required: false
+        type: boolean
+        default: false
+      sync_scripts_command:
+        description: 'Shell command to run in deploy_path when run_sync_scripts is true'
+        required: false
+        type: string
+        default: 'php scripts/sync_eportfolio_data.php && php scripts/sync_activities_detailed.php'
     secrets:
-      DEPLOY_SSH_KEY:
-        description: 'Private SSH key for the target server'
-        required: true
       DEPLOY_HOST:
-        description: 'Hostname or IP address of the target server'
         required: true
       DEPLOY_USER:
-        description: 'SSH username on the target server'
         required: true
-      SLACK_WEBHOOK_URL:
-        description: 'Slack Incoming Webhook URL for deployment notifications'
-        required: false
+      DEPLOY_PASSWORD:
+        required: true
 
 jobs:
-  build-and-deploy:
-    name: Build & Deploy – ${{ inputs.environment }}
+  deploy:
+    name: Deploy - ${{ inputs.environment }}
     runs-on: ubuntu-latest
-
-    # Links this job to a GitHub Environment so approval gates and
-    # environment-scoped secrets are applied automatically.
     environment: ${{ inputs.environment }}
+    env:
+      SSHPASS: ${{ secrets.DEPLOY_PASSWORD }}
+      DEPLOY_PATH: ${{ inputs.deploy_path }}
 
     steps:
-      # ── 1. Checkout ──────────────────────────────────────────────────────
-      - name: Checkout code
+      - name: Block production without confirmation
+        if: ${{ inputs.environment == 'production' && !inputs.confirm_production }}
+        run: |
+          echo "::error::Production deploy blocked: set confirm_production to true."
+          exit 1
+
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 2. Set up Node.js ────────────────────────────────────────────────
-      - name: Set up Node.js ${{ inputs.node_version }}
-        uses: actions/setup-node@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
         with:
-          node-version: ${{ inputs.node_version }}
-          cache: 'npm'
+          php-version: ${{ inputs.php_version }}
 
-      # ── 3. Install dependencies ──────────────────────────────────────────
-      - name: Install dependencies
-        run: npm ci
+      - name: Install Composer dependencies
+        run: composer install --no-dev --prefer-dist --no-interaction
 
-      # ── 4. Run tests ─────────────────────────────────────────────────────
-      - name: Run tests
-        run: npm test
+      - name: Install sshpass
+        run: sudo apt-get update -qq && sudo apt-get install -y sshpass
 
-      # ── 5. Build plugin artifact ─────────────────────────────────────────
-      - name: Build plugin
-        run: npm run build
-        env:
-          NODE_ENV: production
-
-      # ── 6. Package artifact ──────────────────────────────────────────────
-      - name: Package plugin
+      - name: Deploy via rsync (SSH password)
         run: |
-          zip -r "${{ inputs.plugin_name }}-${{ inputs.plugin_version }}.zip" dist/
+          rsync -avz --delete \
+            -e "sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '.gitignore' \
+            --exclude '.env' \
+            --exclude '.env.*' \
+            --exclude '*.log' \
+            --exclude '.claude' \
+            --exclude 'docs/' \
+            ./ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ env.DEPLOY_PATH }}/"
 
-      # ── 7. Upload artifact for audit & rollback ──────────────────────────
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.plugin_name }}-${{ inputs.plugin_version }}
-          path: ${{ inputs.plugin_name }}-${{ inputs.plugin_version }}.zip
-          retention-days: 30
-
-      # ── 8a. Copy artifact to server ──────────────────────────────────────
-      - name: Copy artifact to ${{ inputs.environment }} server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          source: "${{ inputs.plugin_name }}-${{ inputs.plugin_version }}.zip"
-          target: /tmp/
-
-      # ── 8b. Extract and restart on server ────────────────────────────────
-      - name: Deploy to ${{ inputs.environment }} server
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            DEPLOY_DIR="/var/www/plugins/${{ inputs.plugin_name }}"
-            ARTIFACT="${{ inputs.plugin_name }}-${{ inputs.plugin_version }}.zip"
-
-            mkdir -p "$DEPLOY_DIR"
-            unzip -o "/tmp/$ARTIFACT" -d "$DEPLOY_DIR"
-
-            # Restart the plugin service if it exists
-            if systemctl is-active --quiet "plugin-${{ inputs.plugin_name }}"; then
-              systemctl restart "plugin-${{ inputs.plugin_name }}"
-            fi
-
-      # ── 9. Notify Slack ───────────────────────────────────────────────────
-      - name: Notify Slack
-        if: always() && secrets.SLACK_WEBHOOK_URL != ''
-        uses: slackapi/slack-github-action@v1.26.0
-        with:
-          payload: |
-            {
-              "text": "${{ job.status == 'success' && ':white_check_mark:' || ':x:' }} *${{ inputs.plugin_name }} v${{ inputs.plugin_version }}* deployed to *${{ inputs.environment }}* by ${{ github.actor }}\nSee run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      - name: Run plugin sync scripts on server (optional)
+        if: ${{ inputs.run_sync_scripts }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "cd ${{ env.DEPLOY_PATH }} && ${{ inputs.sync_scripts_command }}"

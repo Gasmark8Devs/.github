@@ -7,7 +7,7 @@
 ## Related Repository Docs
 
 - Organization front page (high-level): [`profile/README.md`](../profile/README.md)
-- Copy-paste workflow target path: `.github/workflows/deploy.yml`
+- Copy-paste workflow target folder: `.github/workflows/`
 - This implementation guide (detailed reference): `docs/github-actions-plugin-deployment.md`
 
 ---
@@ -49,7 +49,7 @@ The baseline workflow:
 |---|---|
 | **Native integration** | Runs directly inside GitHub — no third-party CI server to maintain. |
 | **Audit trail** | Every run is logged with the triggering commit, actor, and timestamps. |
-| **Reusability** | The same `deploy.yml` pattern can be copied across WordPress plugin repositories. |
+| **Reusability** | The same workflow pattern can be copied across WordPress plugin repositories, regardless of filename. |
 | **Secrets management** | Credentials are stored as encrypted GitHub Secrets, never in source code. |
 
 ---
@@ -153,18 +153,19 @@ The same file contents can be reused across repositories with minimal edits.
 my-plugin-repo/
 └── .github/
     └── workflows/
-        └── deploy.yml           ← workflow from Section 5.1
+        └── <your-workflow-file>.yml           ← workflow from Section 5.1
 ```
 
 ---
 
 ## 5. Step-by-Step Workflow Configuration
 
-### 5.1 Copy-Paste Workflow for WordPress Plugins (`.github/workflows/deploy.yml`)
+### 5.1 Copy-Paste Workflow for WordPress Plugins (`.github/workflows/`)
 
 This is the reusable deployment pattern used in multiple WordPress plugin repositories.
 It deploys via `rsync` over SSH password auth using environment-scoped secrets.
 It is based on the same structure currently used in `gm8gmcastats/.github/workflows/deploy.yml`.
+You can name the workflow file as needed (for example: `deploy.yml` or `deploy-rsync.yml`).
 
 Core deployment values used by this pattern:
 
@@ -436,7 +437,7 @@ After each deployment, verify:
 
 | Symptom | Likely Cause | Resolution |
 |---|---|---|
-| Workflow does not appear in Actions | Wrong file path or syntax error in YAML | Confirm file is at `.github/workflows/deploy.yml` and validate YAML format. |
+| Workflow does not appear in Actions | Wrong file path or syntax error in YAML | Confirm file is under `.github/workflows/` and validate YAML format. |
 | `Permission denied` during deploy | Wrong `DEPLOY_USER`/`DEPLOY_PASSWORD`, or SSH is blocked | Verify credentials in environment secrets and confirm SSH access from outside GitHub Actions. |
 | Deployment succeeds but plugin is not updated | Wrong `DEPLOY_PATH` | Validate `DEPLOY_PATH` points to `wp-content/plugins/<plugin-slug>`. |
 | Host key warning / SSH prompt interrupts command | Strict host checking prompts in non-interactive CI | Keep non-interactive SSH flags exactly as shown in the workflow. |
@@ -451,7 +452,7 @@ Follow these steps to add this workflow to any new WordPress plugin repository i
 
 ### Step 1 — Create the workflow file
 
-In the new repository, create `.github/workflows/deploy.yml` and paste the copy-paste workflow from [Section 5.1](#51-copy-paste-workflow-for-wordpress-plugins-githubworkflowsdeployyml).
+In the new repository, create `.github/workflows/<your-workflow-file>.yml` and paste the copy-paste workflow from Section 5.1.
 
 ### Step 2 — Add required secrets
 
