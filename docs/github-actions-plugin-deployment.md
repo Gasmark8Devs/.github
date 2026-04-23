@@ -21,6 +21,7 @@
 5. [Step-by-Step Workflow Configuration](#5-step-by-step-workflow-configuration)
 6. [Secrets & Environment Setup](#6-secrets--environment-setup)
 7. [Environment Promotion (Staging → Production)](#7-environment-promotion-staging--production)
+   - [7.1 Production Promotion Strategies](#71-production-promotion-strategies)
 8. [Monitoring & Verification](#8-monitoring--verification)
 9. [Troubleshooting](#9-troubleshooting)
 10. [Replicating This Setup in a New Repository](#10-replicating-this-setup-in-a-new-repository)
@@ -345,6 +346,70 @@ The recommended release flow:
 6. Plugin is live in production
 ```
 
+### 7.1 Production Promotion Strategies
+
+There is no single "best" strategy for every team. These are the common production promotion approaches:
+
+| Strategy | How it works | Strengths | Tradeoffs | Best fit |
+|---|---|---|---|---|
+| Branch-based release | Deploy on push/merge to a branch such as `main` or `release/*`. | Fast and simple; easy for teams already shipping from branches. | Higher risk of accidental production deploys without extra safeguards. | Teams with strict PR controls and mature branch discipline. |
+| Tag-based release | Deploy only when pushing a semantic tag like `v1.4.2`. | Strong traceability; immutable release point; easy rollback by redeploying older tags. | Requires release/tag process discipline. | Teams that want clear versioned production history. |
+| GitHub Release-based | Deploy when a GitHub Release is published (often tied to a tag). | Combines deployment trigger with release notes and stakeholder visibility. | One extra release step to manage. | Teams that treat release notes as part of release governance. |
+| Manual dispatch | Operator runs `workflow_dispatch` and selects `production`. | Maximum operational control and flexibility. | Human-dependent process; weaker release traceability if not paired with conventions. | Small teams and ops-driven deploys (your current baseline). |
+| Artifact promotion | Build once (staging), then promote the exact same artifact to production. | Highest consistency between tested and released output. | More pipeline design overhead (artifact storage and promotion logic). | Larger teams needing strict release reproducibility. |
+
+#### Copy-paste trigger examples
+
+**A) Branch-based production trigger**
+
+```yaml
+on:
+  push:
+    branches:
+      - main
+```
+
+**B) Tag-based production trigger**
+
+```yaml
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+```
+
+**C) GitHub Release-based production trigger**
+
+```yaml
+on:
+  release:
+    types: [published]
+```
+
+**D) Manual production trigger**
+
+```yaml
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+```
+
+#### Recommended decision model
+
+- If you want speed and control: use **manual dispatch** + required reviewers.
+- If you want release traceability: use **tag-based** promotion.
+- If you want communication/governance around releases: use **GitHub Release-based** promotion.
+- If you want strict reproducibility at scale: use **artifact promotion**.
+- If you already ship from branch and it works: keep **branch-based**, but protect it with required reviewers and branch protection rules.
+
 ---
 
 ## 8. Monitoring & Verification
@@ -354,7 +419,7 @@ The recommended release flow:
 1. Open the repository on GitHub.
 2. Click **Actions** tab.
 3. Select the workflow from the left sidebar.
-4. Click any run to see logs, timing, and artifact downloads.
+4. Click any run to see logs, timing, and step outcomes.
 
 ### Post-Deploy Verification Checklist
 
